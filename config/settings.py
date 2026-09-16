@@ -11,21 +11,46 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.getenv(
+
+def env(key: str, default: str = "") -> str:
+    """Read env var; treat missing OR empty as default (Vercel often sets blank values)."""
+    value = os.getenv(key)
+    if value is None or str(value).strip() == "":
+        return default
+    return value.strip()
+
+
+def env_bool(key: str, default: bool = False) -> bool:
+    raw = env(key, "true" if default else "false").lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def env_int(key: str, default: int) -> int:
+    raw = env(key, str(default))
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def env_list(key: str, default: str) -> list[str]:
+    return [part.strip() for part in env(key, default).split(",") if part.strip()]
+
+
+SECRET_KEY = env(
     "SECRET_KEY",
     "django-insecure-dev-only-change-me-ai-book-reader-phase1-32b+",
 )
-FIELD_ENCRYPTION_KEY = os.getenv(
+FIELD_ENCRYPTION_KEY = env(
     "FIELD_ENCRYPTION_KEY",
     "dev-only-fernet-key-change-in-production!!",
 )
 
-DEBUG = os.getenv("DEBUG", "true").lower() in ("1", "true", "yes")
-ALLOWED_HOSTS = [
-    h.strip()
-    for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
-    if h.strip()
-]
+DEBUG = env_bool("DEBUG", True)
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "localhost,127.0.0.1")
+# Vercel preview / production hosts if Django is probed during builds
+if ".vercel.app" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(".vercel.app")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -85,39 +110,37 @@ TEMPLATES = [
     },
 ]
 
-if os.getenv("DATABASE_URL"):
+if env("DATABASE_URL"):
     try:
         import dj_database_url
 
         DATABASES = {
             "default": dj_database_url.config(
-                default=os.environ["DATABASE_URL"],
+                default=env("DATABASE_URL"),
                 conn_max_age=600,
-                ssl_require=os.getenv("DB_SSL_REQUIRE", "true").lower()
-                in ("1", "true", "yes"),
+                ssl_require=env_bool("DB_SSL_REQUIRE", True),
             )
         }
     except Exception:
-        # Fallback if dj-database-url missing in local env
         DATABASES = {
             "default": {
                 "ENGINE": "django.db.backends.postgresql",
-                "NAME": os.getenv("POSTGRES_DB", "aibook"),
-                "USER": os.getenv("POSTGRES_USER", "aibook"),
-                "PASSWORD": os.getenv("POSTGRES_PASSWORD", "aibook"),
-                "HOST": os.getenv("POSTGRES_HOST", "localhost"),
-                "PORT": os.getenv("POSTGRES_PORT", "5432"),
+                "NAME": env("POSTGRES_DB", "aibook"),
+                "USER": env("POSTGRES_USER", "aibook"),
+                "PASSWORD": env("POSTGRES_PASSWORD", "aibook"),
+                "HOST": env("POSTGRES_HOST", "localhost"),
+                "PORT": env("POSTGRES_PORT", "5432"),
             }
         }
-elif os.getenv("POSTGRES_DB"):
+elif env("POSTGRES_DB"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("POSTGRES_DB", "aibook"),
-            "USER": os.getenv("POSTGRES_USER", "aibook"),
-            "PASSWORD": os.getenv("POSTGRES_PASSWORD", "aibook"),
-            "HOST": os.getenv("POSTGRES_HOST", "localhost"),
-            "PORT": os.getenv("POSTGRES_PORT", "5432"),
+            "NAME": env("POSTGRES_DB", "aibook"),
+            "USER": env("POSTGRES_USER", "aibook"),
+            "PASSWORD": env("POSTGRES_PASSWORD", "aibook"),
+            "HOST": env("POSTGRES_HOST", "localhost"),
+            "PORT": env("POSTGRES_PORT", "5432"),
         }
     }
 else:
@@ -142,9 +165,15 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# Manifest storage breaks on platforms that probe Django without collectstatic (e.g. Vercel)
+_static_backend = (
+    "whitenoise.storage.CompressedStaticFilesStorage"
+    if env("VERCEL") or env("VERCEL_ENV")
+    else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+)
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+    "staticfiles": {"BACKEND": _static_backend},
 }
 
 MEDIA_URL = "/media/"
@@ -154,24 +183,16 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
 SITE_ID = 1
 
-CORS_ALLOWED_ORIGINS = [
-    o.strip()
-    for o in os.getenv(
-        "CORS_ALLOWED_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173",
-    ).split(",")
-    if o.strip()
-]
+CORS_ALLOWED_ORIGINS = env_list(
+    "CORS_ALLOWED_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173",
+)
 CORS_ALLOW_CREDENTIALS = True
 
-CSRF_TRUSTED_ORIGINS = [
-    o.strip()
-    for o in os.getenv(
-        "CSRF_TRUSTED_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173",
-    ).split(",")
-    if o.strip()
-]
+CSRF_TRUSTED_ORIGINS = env_list(
+    "CSRF_TRUSTED_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173",
+)
 
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -223,8 +244,8 @@ AUTHENTICATION_BACKENDS = (
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
         "APP": {
-            "client_id": os.getenv("GOOGLE_CLIENT_ID", ""),
-            "secret": os.getenv("GOOGLE_CLIENT_SECRET", ""),
+            "client_id": env("GOOGLE_CLIENT_ID", ""),
+            "secret": env("GOOGLE_CLIENT_SECRET", ""),
             "key": "",
         },
         "SCOPE": ["profile", "email"],
@@ -232,15 +253,11 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
-CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "true").lower() in (
-    "1",
-    "true",
-    "yes",
-)
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+CELERY_TASK_ALWAYS_EAGER = env_bool("CELERY_TASK_ALWAYS_EAGER", True)
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 
-MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))
+MAX_UPLOAD_SIZE_MB = env_int("MAX_UPLOAD_SIZE_MB", 50)

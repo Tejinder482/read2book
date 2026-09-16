@@ -1,0 +1,4 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "echo \"Django API is not deployed on Vercel. Use Render/Railway. See DEPLOY.md\" && exit 1"
+}
